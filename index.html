@@ -1,1 +1,192 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Football Simulation — Free Analytics</title>
+<style>
+:root{--bg:#101820;--panel:#192630;--green:#55e6a5;--muted:#9eafbb}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:#f5f7fa;font-family:Arial,sans-serif}
+header{padding:25px 6%;border-bottom:1px solid #34434c}
+.logo{font-size:25px;font-weight:900;letter-spacing:-1px}
+.logo span{color:var(--green)}
+header p{color:var(--muted);margin-bottom:0}
+main{max-width:1050px;margin:auto;padding:25px 16px}
+h2{font-size:19px}
+.panel{background:var(--panel);padding:20px;border-radius:14px;margin-bottom:18px}
+.controls{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px}
+input,select,button{width:100%;padding:12px;border-radius:8px;border:1px solid #43515c;background:#101820;color:white}
+button{background:var(--green);color:#10221b;font-weight:bold;border:0;cursor:pointer;margin-top:15px}
+button:hover{filter:brightness(.92)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.stat{background:#101820;border-radius:10px;padding:15px}
+.stat strong{display:block;font-size:25px;color:var(--green);margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px 8px;border-bottom:1px solid #34434c;text-align:left}
+th{color:var(--muted)}
+.bar{height:6px;background:#34434c;border-radius:5px;overflow:hidden;margin-top:5px}
+.bar i{display:block;height:100%;background:var(--green)}
+.note{color:var(--muted);font-size:12px;line-height:1.6}
+@media(max-width:600px){.controls{grid-template-columns:1fr 1fr}.stats{grid-template-columns:1fr 1fr}.panel{padding:14px}table{font-size:12px}th,td{padding:9px 4px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">⚽ FOOTBALL <span>SIMULATION</span></div>
+  <p>Free football analytics · League predictions · Monte Carlo engine</p>
+</header>
+<main>
+<section class="panel">
+<h2>League Simulator</h2>
+<div class="controls">
+<div><label>League</label>
+<select id="league">
+<option>Premier League</option>
+<option>La Liga</option>
+<option>Serie A</option>
+<option>Bundesliga</option>
+<option>Ligue 1</option>
+</select></div>
+<div><label>Number of simulations</label>
+<select id="runs">
+<option value="1000">1,000</option>
+<option value="10000" selected>10,000</option>
+<option value="100000">100,000</option>
+</select></div>
+<div><label>Remaining matches per team</label>
+<select id="games">
+<option value="5">5 matches</option>
+<option value="10" selected>10 matches</option>
+<option value="19">19 matches</option>
+</select></div>
+</div>
+<button id="run">Run Simulation</button>
+<p class="note">Uses team-strength estimates and random match outcomes. Results are simulations, not guaranteed predictions.</p>
+</section>
+
+<section class="panel">
+<h2>Season Overview</h2>
+<div class="stats">
+<div class="stat">Simulations<strong id="total">—</strong></div>
+<div class="stat">Most likely champion<strong id="champ">—</strong></div>
+<div class="stat">Champion probability<strong id="prob">—</strong></div>
+</div>
+</section>
+
+<section class="panel">
+<h2>League Table Projection</h2>
+<div style="overflow-x:auto">
+<table>
+<thead><tr><th>#</th><th>Club</th><th>Pts</th><th>Win %</th><th>Title %</th></tr></thead>
+<tbody id="results"><tr><td colspan="5">Run a simulation to see results.</td></tr></tbody>
+</table>
+</div>
+</section>
+
+<section class="panel">
+<h2>Team Strengths</h2>
+<p class="note">Edit the ratings below (1–100) to create your own scenario.</p>
+<div id="teams" class="controls"></div>
+<button id="reset" style="background:#34434c;color:white">Reset Team Ratings</button>
+</section>
+<footer class="note">Football Simulation is an independent, free-to-use demo. No subscription or account required.</footer>
+</main>
+<script>
+const defaults=[
+["Arsenal",88],["Manchester City",94],["Liverpool",89],
+["Chelsea",83],["Manchester United",82],["Tottenham",81],
+["Newcastle",82],["Aston Villa",83],["Brighton",79],
+["West Ham",77],["Fulham",74],["Brentford",76],
+["Crystal Palace",76],["Everton",72],["Wolves",74],
+["Bournemouth",75],["Nottingham Forest",73],["Leicester",71],
+["Ipswich",68],["Southampton",67]
+];
+let clubs=defaults.map(([name,rating])=>({name,rating}));
+const $=id=>document.getElementById(id);
+function renderTeams(){
+$("teams").innerHTML=clubs.map((t,i)=>`
+<div><label>${t.name} (1–100)</label>
+<input type="number" min="1" max="100" value="${t.rating}" data-index="${i}"></div>
+`).join("");
+$("teams").querySelectorAll("input").forEach(input=>{
+input.addEventListener("change",()=>{
+clubs[+input.dataset.index].rating=Math.max(1,Math.min(100,+input.value||1));
+input.value=clubs[+input.dataset.index].rating;
+});
+});
+}
+function poisson(lambda){
+let limit=Math.exp(-lambda),p=1,k=0;
+do{k++;p*=Math.random()}while(p>limit);
+return k-1;
+}
+function simulateMatch(a,b){
+const home=1.25*Math.exp((a.rating-b.rating)/23);
+const away=1.05*Math.exp((b.rating-a.rating)/23);
+return [poisson(Math.min(home,4.5)),poisson(Math.min(away,4.5))];
+}
+function runSimulation(){
+const n=+$("runs").value,games=+$("games").value;
+const standings=clubs.map(t=>({
+...t,pts:0,w:0,d:0,l:0,gf:0,ga:0,titles:0,winTotal:0,pointsTotal:0
+}));
+$("run").disabled=true;
+$("run").textContent="Simulating...";
+setTimeout(()=>{
+for(let s=0;s<n;s++){
+const table=standings.map(()=>({pts:0,w:0,d:0,l:0,gf:0,ga:0}));
+for(let round=0;round<games;round++){
+const order=clubs.map((_,i)=>i).sort(()=>Math.random()-.5);
+for(let i=0;i<order.length;i++){
+for(let j=i+1;j<order.length;j++){
+if(Math.random()>games/Math.max(1,clubs.length-1))continue;
+const a=order[i],b=order[j];
+const [x,y]=simulateMatch(clubs[a],clubs[b]);
+table[a].gf+=x;table[a].ga+=y;
+table[b].gf+=y;table[b].ga+=x;
+if(x>y){table[a].pts+=3;table[a].w++;table[b].l++}
+else if(x<y){table[b].pts+=3;table[b].w++;table[a].l++}
+else{table[a].pts++;table[b].pts++;table[a].d++;table[b].d++}
+}
+}
+}
+const sorted=table.map((t,i)=>({...t,i})).sort((a,b)=>
+b.pts-a.pts||(b.gf-b.ga)-(a.gf-a.ga)||b.gf-a.gf);
+standings[sorted[0].i].titles++;
+sorted.forEach((t,pos)=>{
+const row=standings[t.i];
+row.pointsTotal+=t.pts;
+if(pos===0)row.winTotal++;
+});
+}
+const sorted=standings.map(t=>({...t,
+titlePct:t.titles/n*100,
+avgPts:t.pointsTotal/n,
+winPct:t.winTotal/n*100
+})).sort((a,b)=>b.titlePct-a.titlePct||b.avgPts-a.avgPts);
+$("total").textContent=n.toLocaleString();
+$("champ").textContent=sorted[0].name;
+$("prob").textContent=sorted[0].titlePct.toFixed(1)+"%";
+$("results").innerHTML=sorted.map((t,i)=>`
+<tr><td>${i+1}</td><td>${t.name}
+<div class="bar"><i style="width:${t.titlePct}%"></i></div></td>
+<td>${t.avgPts.toFixed(1)}</td>
+<td>${t.winPct.toFixed(1)}%</td>
+<td>${t.titlePct.toFixed(1)}%</td></tr>`).join("");
+$("run").disabled=false;
+$("run").textContent="Run Simulation";
+},20);
+}
+$("run").addEventListener("click",runSimulation);
+$("reset").addEventListener("click",()=>{
+clubs=defaults.map(([name,rating])=>({name,rating}));
+renderTeams();
+});
+renderTeams();
+</script>
+</body>
+</html>
+
